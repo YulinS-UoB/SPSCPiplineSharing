@@ -3,14 +3,14 @@ import numpy as np
 from roifile import ImagejRoi
 import skimage.io as skio
 from skimage.draw import polygon
+import json as js
 # ************************************
 
 
 class AnnotationInterprator:
 
     def __init__(self, annotation_dir, annotation_list, annotation_label, image_stack_path,
-                 mask_save_prefix, img_save_prefix, image_type='uint16'):
-
+                 mask_save_prefix, img_save_prefix, meta_save_prefix=None, image_type='uint16'):
         self.annotationMap = {}
         self.labelMap = {}
         for labelIdx in range(len(annotation_label)):
@@ -33,6 +33,7 @@ class AnnotationInterprator:
         self.imgType = image_type
         self.maskPrefix = mask_save_prefix
         self.imgPrefix = img_save_prefix
+        self.metaPrefix = meta_save_prefix
         self.IMGStack = None
         self.IMGShape = None
         self.IMGMask = {}
@@ -40,14 +41,14 @@ class AnnotationInterprator:
     def getAnnoInfo(self):
         self.IMGStack = skio.imread(self.imagePath, plugin="tifffile").astype(self.imgType)
         self.IMGShape = self.IMGStack.shape
+        self.IMGMask = np.zeros(self.IMGShape, dtype='uint8')
 
         for label in self.annotationMap.keys():
             self.annotationROI[label] = ImagejRoi.fromfile(self.annotationMap[label])
-            self.IMGMask[label] = np.zeros(self.IMGShape, dtype='uint8')
 
     def generateMask(self):
-        for label in self.annotationROI.keys():
-            for tPos in range(self.IMGMask[label].shape[0]):
+        for tPos in range(self.IMGMask.shape[0]):
+            for label in self.annotationROI.keys():
                 for roiIdx in range(len(self.annotationROI[label])):
                     roi = self.annotationROI[label][roiIdx]
                     if roi.position == (tPos + 1):
@@ -57,20 +58,38 @@ class AnnotationInterprator:
                             rpos = region[:, 1]
                             cpos = region[:, 0]
                             rr, cc = polygon(rpos, cpos)
-                            self.IMGMask[label][tPos, rr, cc] = self.labelMap[label]
+                            self.IMGMask[tPos, rr, cc] = self.labelMap[label]
 
     def saveMask(self):
-        for label in self.IMGMask.keys():
-            np.save('{}{}.npy'.format(self.maskPrefix, label), self.IMGMask[label])
+        np.save('{}.npy'.format(self.maskPrefix), self.IMGMask)
 
     def saveImg(self):
         np.save('{}.npy'.format(self.imgPrefix), self.IMGStack)
 
-    def AIO_SelfComprehend(self):
+    def saveMeta(self):
+        content = {'raw image path': self.imagePath, 'annotation file path': self.annotationMap,
+                   'label map': self.labelMap, 'image set shape': self.IMGStack.shape,
+                   'image saving prefix': self.imgPrefix, 'mask saving prefix': self.maskPrefix,
+                   'meta saving prefix': self.metaPrefix}
+        with open('{}.json'.format(self.metaPrefix), 'w') as jf:
+            js.dump(content, jf)
+        return content
+
+    def AIO_SelfComprehend(self, return_roi=False):
         self.getAnnoInfo()
         self.generateMask()
+        if return_roi:
+            return self.annotationROI
 
-    def AIO_SelfSaving(self):
+    def AIO_SelfSaving(self, return_meta=True):
         self.saveMask()
         self.saveImg()
+        if self.metaPrefix is not None:
+            meta = self.saveMeta()
+        if return_meta:
+            return meta
+
+
+
+
 
