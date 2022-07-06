@@ -61,10 +61,10 @@ class AnnotationInterprator:
 
     def saveMask(self):
         for label in self.IMGMask.keys():
-            np.save('{}{}.npy'.format(self.maskPrefix, label))
+            np.save('{}{}.npy'.format(self.maskPrefix, label), self.IMGMask[label])
 
     def saveImg(self):
-        np.save('{}{}.npy'.format(self.imgPrefix, self.IMGStack))
+        np.save('{}.npy'.format(self.imgPrefix), self.IMGStack)
 
     def AIO_SelfComprehend(self):
         self.getAnnoInfo()
