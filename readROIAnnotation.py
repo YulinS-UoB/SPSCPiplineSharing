@@ -12,7 +12,20 @@ class AnnotationInterprator:
     def __init__(self, annotation_dir, annotation_list, annotation_label, image_stack_path,
                  mask_save_prefix, img_save_prefix, meta_save_prefix=None, image_type='uint16'):
         self.annotationMap = {}
+        # Dict mapping annotation label and corresponding ROI file path
         self.labelMap = {}
+        # Dict mapping annotation label and corresponding mask region value
+        self.annotationROI = {}
+        # Dict mapping annotation label and corresponding ImagJ ROI object
+        self.imagePath = image_stack_path
+        self.imgType = image_type
+        self.maskPrefix = mask_save_prefix
+        self.imgPrefix = img_save_prefix
+        self.metaPrefix = meta_save_prefix
+        self.IMGStack = None
+        self.IMGShape = None
+        self.IMGMask = None
+
         for labelIdx in range(len(annotation_label)):
             if type(annotation_label[labelIdx]) == int:
                 text_label = '{:03d}'.format(annotation_label[labelIdx])
@@ -24,19 +37,6 @@ class AnnotationInterprator:
                 text_label = annotation_label[labelIdx]
                 self.labelMap[text_label] = labelIdx + 1
             self.annotationMap[text_label] = annotation_dir + annotation_list[labelIdx]
-        # 注释编号与注释文件路径相对应的Dict
-
-        self.annotationROI = {}
-        # 注释编号与ImageJ ROI对象相对应的Dict
-
-        self.imagePath = image_stack_path
-        self.imgType = image_type
-        self.maskPrefix = mask_save_prefix
-        self.imgPrefix = img_save_prefix
-        self.metaPrefix = meta_save_prefix
-        self.IMGStack = None
-        self.IMGShape = None
-        self.IMGMask = {}
 
     def getAnnoInfo(self):
         self.IMGStack = skio.imread(self.imagePath, plugin="tifffile").astype(self.imgType)
@@ -66,14 +66,16 @@ class AnnotationInterprator:
     def saveImg(self):
         np.save('{}.npy'.format(self.imgPrefix), self.IMGStack)
 
-    def saveMeta(self):
+    def saveMeta(self, save=True, return_meta=True):
         content = {'raw image path': self.imagePath, 'annotation file path': self.annotationMap,
                    'label map': self.labelMap, 'image set shape': self.IMGStack.shape,
                    'image saving prefix': self.imgPrefix, 'mask saving prefix': self.maskPrefix,
                    'meta saving prefix': self.metaPrefix}
-        with open('{}.json'.format(self.metaPrefix), 'w') as jf:
-            js.dump(content, jf)
-        return content
+        if save:
+            with open('{}.json'.format(self.metaPrefix), 'w') as jf:
+                js.dump(content, jf)
+        if return_meta:
+            return content
 
     def AIO_SelfComprehend(self, return_roi=False):
         self.getAnnoInfo()
@@ -84,12 +86,8 @@ class AnnotationInterprator:
     def AIO_SelfSaving(self, return_meta=True):
         self.saveMask()
         self.saveImg()
-        if self.metaPrefix is not None:
-            meta = self.saveMeta()
         if return_meta:
+            meta = self.saveMeta(save=self.metaPrefix)
             return meta
-
-
-
-
-
+        else:
+            self.saveMeta(save=self.metaPrefix, return_meta=False)
