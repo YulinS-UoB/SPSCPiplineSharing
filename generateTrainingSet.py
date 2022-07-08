@@ -58,14 +58,66 @@ class TrainingSetGenerator:
             self.generateMask[1] = self.generateMask[0] * distance_mask
 
     def arrangeDim(self):
+
         ndim = self.imgStack.ndim
+        sc_mask = False  # If Mask Stack got channel dim reduced
         if self.imgStack.shape != self.maskStack.shape:
-            print('Warning: Image shape and mask shape is not identical!')
-        if not (self.imgStack.ndim == len(self.imageDim) and self.maskStack.ndim == len(self.imageDim)):
-            print('Error: Either image or mask is not arranged in style of {}, check data dimension.'
-                  .format(self.imageDim))
-            pass
+            if ndim == self.maskStack.ndim + 1:
+                proposed_mask_shape = [self.imgStack.shape[dim] for dim in range(len(ndim))
+                                       if dim != self.imageDim.find('c')]
+                if self.maskStack.shape == proposed_mask_shape:
+                    print('Omitting the channel dim in mask stack...')
+                    sc_mask = True
+                else:
+                    print('Error: Image shape and mask shape is not identical!')
+                    return 1
+            else:
+                print('Error: Mask dim is strange, check data dimension')
+                return 2
         else:
-            if (self.imageDim in ['txyc', 'xyc']) and (self.imgStack.shape[-1] > 4 or self.maskStack.shape[-1] > 4):
-                print('Warning: Found either image or mask has channel number over 4. '
-                      'Are you sure the dim order is correct?')
+            pass
+
+        if not ndim == len(self.imageDim):
+            print('Error: Either image or mask does not have dim number as input {}, check data dimension.'
+                  .format(self.imageDim))
+            return 3
+        else:
+            pass
+
+        if (self.imageDim in ['txyc', 'xyc']) and (self.imgStack.shape[-1] > 3 or self.maskStack.shape[-1] > 3):
+            print('Warning: Found either image or mask has channel number over 3. '
+                  'Are you sure the dim order is correct?')
+        else:
+            pass
+
+        # imageDim = ['txyc', 'xyct', 'xyc', 'xyt', 'txy']
+
+        if self.imageDim == 'txyc':
+            if not sc_mask:
+                pass
+            else:
+                self.maskStack = np.expand_dims(self.maskStack, axis=3)
+        elif self.imageDim == 'txy':
+            self.imgStack = np.expand_dims(self.imgStack, axis=3)
+            self.maskStack = np.expand_dims(self.maskStack, axis=3)
+        elif self.imageDim == 'xyt':
+            self.imgStack = np.expand_dims(self.imgStack, axis=3)
+            self.maskStack = np.expand_dims(self.maskStack, axis=3)
+            self.imgStack = np.moveaxis(self.imgStack, 2, 0)
+            self.maskStack = np.moveaxis(self.maskStack, 2, 0)
+        elif self.imageDim == 'xyc':
+            if not sc_mask:
+                self.imgStack = np.expand_dims(self.imgStack, axis=0)
+                self.maskStack = np.expand_dims(self.maskStack, axis=0)
+            else:
+                self.imgStack = np.expand_dims(self.imgStack, axis=0)
+                self.maskStack = np.expand_dims(self.maskStack, axis=(0, 3))
+        elif self.imageDim == 'xyct':
+            if not sc_mask:
+                self.imgStack = np.moveaxis(self.imgStack, 3, 0)
+                self.maskStack = np.moveaxis(self.maskStack, 3, 0)
+            else:
+                self.imgStack = np.moveaxis(self.imgStack, 3, 0)
+                self.maskStack = np.expand_dims(self.maskStack, axis=2)
+                self.maskStack = np.moveaxis(self.maskStack, 3, 0)
+        # Now both image stack and mask stack become txyc style, 4 dimensions
