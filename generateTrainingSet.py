@@ -95,7 +95,7 @@ class TrainingSetGenerator:
             self.generateMask[1] = self.generateMask[0] * distance_mask
 
     def arrangeDim(self):
-
+        #  Convert image and mask to TXYC form
         ndim = self.imgStack.ndim
         sc_mask = False  # If Mask Stack got channel dim reduced
         if self.imgStack.shape != self.maskStack.shape:
@@ -160,6 +160,13 @@ class TrainingSetGenerator:
         # Now both image stack and mask stack become txyc style, 4 dimensions
 
     def preProcess(self, save_by_iter=False):
+        # pre-process the images according to the protocol, and save(or not) all the features (after processing) of the
+        # labeled pixels as dataset
+        # Has 3 sub functions:
+        #   * imgOpt_at_sTimePoint (do the pre-processing)
+        #   * iterRtrvFeatures (retrieve annotated pixels as multi-feature data point)
+        #   * savePatchs (save the data points, and return the data points of 1 time point as a dictionary, either as
+        #     path or array)
         trtmnt_num = 0
         for methodIdx in range(len(self.processProtocol['method'])):
             for sigmaIdx in range(len(self.processProtocol['sigma'])):
@@ -178,6 +185,7 @@ class TrainingSetGenerator:
                 else:
                     processed_dict['results']['{:05d}'.format(tIdx)] = self.savePatches(processed_stack, tIdx,
                                                                                         write_ds=False)
+        return processed_dict
 
     def savePatches(self, res_stack, tidx, write_ds=True):
         mask = self.maskStack[tidx, :, :, 0]
