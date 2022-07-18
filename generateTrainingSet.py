@@ -58,7 +58,7 @@ class TrainingSetGenerator:
         #  The vision_rad is the pixel rad in TorchShine and sigma in MoonLight
         self.visionShape = vision_shape
         # [circle, square]
-        self.datasetName = '{}{}.h5'.format(dataset_prefix, datetime.datetime.now().strftime('%Y-%m-%d_%H_%M'))
+        self.datasetName = '{}{}/'.format(dataset_prefix, datetime.datetime.now().strftime('%Y-%m-%d_%H_%M'))
         protocol_temp = ['Gaussian', 'LoG', 'GEoG', 'DoG', 'STE', 'HoGE']
         sigma_choice = [0.2, 0.33, 0.6, 1, 1.8, 3, 5.4, 9, 16.2]
         self.processMode = {'versatile': [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 7, 8]],
@@ -159,7 +159,7 @@ class TrainingSetGenerator:
                 self.maskStack = np.moveaxis(self.maskStack, 3, 0)
         # Now both image stack and mask stack become txyc style, 4 dimensions
 
-    def preProcess(self):
+    def preProcess(self, save_by_iter=False):
         trtmnt_num = 0
         for methodIdx in range(len(self.processProtocol['method'])):
             for sigmaIdx in range(len(self.processProtocol['sigma'])):
@@ -173,6 +173,46 @@ class TrainingSetGenerator:
                 origin_img = self.imgStack.shape[tIdx, :, :, :].astype(np.double)
                 res_shape = (trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2], self.imgStack.shape[3])
                 processed_stack = self.imgOpt_at_sTimePoint(origin_img, res_shape)
+                if save_by_iter:
+                    processed_dict['results']['{:05d}'.format(tIdx)] = self.savePatches(processed_stack, tIdx)
+                else:
+                    processed_dict['results']['{:05d}'.format(tIdx)] = self.savePatches(processed_stack, tIdx,
+                                                                                        write_ds=False)
+
+    def savePatches(self, res_stack, tidx, write_ds=True):
+        mask = self.maskStack[tidx, :, :, 0]
+        label_loc = {}
+        data_patch = []
+        for label in self.labelMap.keys():
+            label_loc[label] = np.array(np.where(mask == self.labelMap[label]))
+        for label in label_loc.keys():
+            batch_num = label_loc[label].shape[1]
+            label_feature_instances = self.iterRtrvFeatures(batch_num, res_stack, label_loc[label])
+            for istc in range(label_feature_instances.shape[0]):
+                if write_ds:
+                    data_patch.append({'label': label, 'feature': '{}{}/T{:05d}P{:08d}.npy'})
+                    np.save('{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName, label, tidx, istc))
+                else:
+                    data_patch.append({'label': label, 'feature': label_feature_instances[istc, :]})
+        return data_patch
+
+    @nb.jit()
+    def iterRtrvFeatures(self, batch_num, res_stack, label_loc):
+        feature_array = np.zeros(batch_num, self.generateMask[0].sum() * res_stack.shape[0] * res_stack.shape[3])
+        focus_rad = (self.generateMask[0].shape[0] - 1) // 2
+        padded_feature = np.pad(res_stack, (0, focus_rad, focus_rad, 0), mode='reflect')
+        nd_filter = np.zeros((res_stack.shape[0], self.generateMask[0].shape[0], self.generateMask[0].shape[1],
+                              res_stack.shape[3]))
+        noticed_loc = np.where(self.generateMask[0] != 0)
+        for t in range(res_stack.shape[0]):
+            for c in range(res_stack.shape[3]):
+                nd_filter[t, :, :, c] = self.generateMask[1]
+        for loc in range(batch_num):
+            x, y = label_loc[:, loc]
+            feature_region = padded_feature[:, (x - focus_rad):(x + focus_rad), (y - focus_rad):(y + focus_rad), :]
+            noticed_feature = ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :]).flatten()
+            feature_array[loc, :] = noticed_feature
+        return feature_array
 
     def imgOpt_at_sTimePoint(self, image, shape):
         processed_stack = np.zeros(shape, dtype=np.double)
@@ -246,7 +286,3 @@ class TrainingSetGenerator:
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
         return processed_stack
-
-
-
-
