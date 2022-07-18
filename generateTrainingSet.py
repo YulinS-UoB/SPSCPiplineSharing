@@ -3,7 +3,41 @@ from skimage import morphology, filters
 from scipy import ndimage
 import numpy as np
 import datetime
+import numba as nb
 # ***********************************
+
+'''Below are Static Methods'''
+
+
+@nb.jit()
+def outerTensor(gr_x, gr_y):
+    tensor = np.zeros((gr_x.shape[0], gr_x.shape[1], gr_x.shape[2], 4), dtype=np.double)
+    for i in range(gr_x.shape[0]):
+        for j in range(gr_x.shape[1]):
+            for c in range(3):
+                gr_v = [gr_x[i, j, c], gr_y[i, j, c]]
+                tensor[i, j, c, :] = (np.outer(gr_v, gr_v)).flatten()
+    return tensor
+
+
+@nb.jit()
+def calcuEigenVal(tensor):
+    eigenval_tensor = np.zeros((tensor.shape[0], tensor.shape[1], tensor.shape[2], 2), dtype=np.double)
+    for i in range(tensor.shape[0]):
+        for j in range(tensor.shape[1]):
+            for c in range(tensor.shape[2]):
+                eigenval_tensor[i, j, c, :], v = np.linalg.eig(tensor[i, j, c, :].reshape((2, 2)))
+    return eigenval_tensor
+
+
+def gaussianBlur(tensor, sigma):
+    blurred_tensor = np.zeros(tensor.shape, dtype=np.double)
+    for prdct in range(tensor.shape[3]):
+        blurred_tensor[:, :, :, prdct] = filters.gaussian(tensor[:, :, :, prdct], sigma=sigma, channel_axis=2)
+    return blurred_tensor
+
+
+'''Above are Static Methods'''
 
 
 class TrainingSetGenerator:
@@ -126,43 +160,93 @@ class TrainingSetGenerator:
         # Now both image stack and mask stack become txyc style, 4 dimensions
 
     def preProcess(self):
+        trtmnt_num = 0
+        for methodIdx in range(len(self.processProtocol['method'])):
+            for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                if self.processProtocol['method'][methodIdx] in ['Gaussian', 'LoG', 'DoG', 'GEoG']:
+                    trtmnt_num = trtmnt_num + 1
+                else:
+                    trtmnt_num = trtmnt_num + 2
+        processed_dict = {'results': {}, 'meta': {}}
         for tIdx in range(self.imgStack.shape[0]):
             if self.maskStack[tIdx, :, :, :].sum(dtype='uint32') != 0:
-                trtmnt_num = len(self.processProtocol['method']) * len(self.processProtocol['sigma'])
-                processed_stack = np.zeros((trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2],
-                                           self.imgStack.shape[3]), dtype=self.imgStack.dtype)
-                # processed_stack shape: M-X-Y-C (preprocessing methods, x, y, channel)
-                for methodIdx in range(len(self.processProtocol['method'])):
-                    method = self.processProtocol['method'][methodIdx]
-                    # Gaussian Blurr
-                    if method == 'Gaussian':
-                        for sigmaIdx in range(len(self.processProtocol['sigma'])):
-                            sigma = self.processProtocol['sigma'][sigmaIdx]
-                            processed_stack[methodIdx * len(self.processProtocol['sigma']) + sigmaIdx, :, :, :] = \
-                                filters.gaussian(self.imgStack.shape[tIdx, :, :, :], sigma=sigma, channel_axis=2)
-                    # Laplacian of Gaussian
-                    elif method == 'LoG':
-                        for sigmaIdx in range(len(self.processProtocol['sigma'])):
-                            sigma = self.processProtocol['sigma'][sigmaIdx]
-                            blurred = filters.gaussian(self.imgStack.shape[tIdx, :, :, :], sigma=sigma, channel_axis=2)
-                            processed_stack[methodIdx * len(self.processProtocol['sigma']) + sigmaIdx, :, :, :] = \
-                                filters.laplace(blurred)
-                    # Difference of Gaussian
-                    elif method == 'DoG':
-                        for sigmaIdx in range(len(self.processProtocol['sigma'])):
-                            sigma = self.processProtocol['sigma'][sigmaIdx]
-                            processed_stack[methodIdx * len(self.processProtocol['sigma']) + sigmaIdx, :, :, :] = \
-                                filters.difference_of_gaussians(self.imgStack.shape[tIdx, :, :, :], low_sigma=sigma,
-                                                                channel_axis=2)
-                    # Gradient Magnitude (from Sobel) of Gaussian
-                    elif method == 'GEoG':
-                        for sigmaIdx in range(len(self.processProtocol['sigma'])):
-                            sigma = self.processProtocol['sigma'][sigmaIdx]
-                            blurred = filters.gaussian(self.imgStack.shape[tIdx, :, :, :], sigma=sigma, channel_axis=2)
-                            processed_stack[methodIdx * len(self.processProtocol['sigma']) + sigmaIdx, :, :, :] = \
-                                np.sqrt(np.square(filters.sobel(blurred, axis=0)) +
-                                        np.square(filters.sobel(blurred, axis=1)))
-                    # Structure Tensor Eigenvalue
-                    elif method == 'STE':
-                        
+                origin_img = self.imgStack.shape[tIdx, :, :, :].astype(np.double)
+                res_shape = (trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2], self.imgStack.shape[3])
+                processed_stack = self.imgOpt_at_sTimePoint(origin_img, res_shape)
+
+    def imgOpt_at_sTimePoint(self, image, shape):
+        processed_stack = np.zeros(shape, dtype=np.double)
+        origin_img = image
+        # processed_stack shape: M-X-Y-C (preprocessing methods, x, y, channel)
+        batch_pointer = 0  # Indicating which batch layer should the processed image be written into
+        for methodIdx in range(len(self.processProtocol['method'])):
+            method = self.processProtocol['method'][methodIdx]
+            # Gaussian Blurr
+            if method == 'Gaussian':
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    processed_stack[batch_pointer, :, :, :] = \
+                        filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
+                    batch_pointer = batch_pointer + 1
+
+            # Laplacian of Gaussian
+            elif method == 'LoG':
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    blurred = filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
+                    processed_stack[batch_pointer, :, :, :] = \
+                        filters.laplace(blurred)
+                    batch_pointer = batch_pointer + 1
+
+            # Difference of Gaussian
+            elif method == 'DoG':
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    processed_stack[batch_pointer, :, :, :] = \
+                        filters.difference_of_gaussians(origin_img, low_sigma=sigma, channel_axis=2)
+                    batch_pointer = batch_pointer + 1
+
+            # Gradient Magnitude of Gaussian
+            elif method == 'GEoG':
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    blurred = filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
+                    processed_stack[batch_pointer, :, :, :] = \
+                        np.sqrt(np.square(np.gradient(blurred, axis=0)) +
+                                np.square(np.gradient(blurred, axis=1)))
+                    batch_pointer = batch_pointer + 1
+
+            # Structure Tensor Eigenvalue
+            elif method == 'STE':
+                gradient_x = np.gradient(origin_img, axis=0)
+                gradient_y = np.gradient(origin_img, axis=1)
+                outer_tensor = outerTensor(gradient_x, gradient_y)
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    blurred_tensor = gaussianBlur(outer_tensor, sigma)
+                    eigen_res = calcuEigenVal(blurred_tensor)
+                    processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
+                    batch_pointer = batch_pointer + 2
+
+            # Hessian of Gaussian Eigenvalue
+            elif method == 'HoGE':
+                for sigmaIdx in range(len(self.processProtocol['sigma'])):
+                    sigma = self.processProtocol['sigma'][sigmaIdx]
+                    outer_tensor = np.zeros((origin_img.shape[0], origin_img.shape[1],
+                                             origin_img.shape[3], 4))
+                    for c in range(origin_img.shape[2]):
+                        outer_tensor[:, :, c, 0] = \
+                            ndimage.gaussian_filter(origin_img[:, :, c], sigma=sigma, order=(2, 0))
+                        outer_tensor[:, :, c, 3] = \
+                            ndimage.gaussian_filter(origin_img[:, :, c], sigma=sigma, order=(0, 2))
+                        even_driv = ndimage.gaussian_filter(origin_img[:, :, c], sigma=sigma, order=(1, 1))
+                        outer_tensor[:, :, c, 1] = even_driv
+                        outer_tensor[:, :, c, 2] = even_driv
+                    eigen_res = calcuEigenVal(outer_tensor)
+                    processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
+                    batch_pointer = batch_pointer + 2
+        return processed_stack
+
+
+
 
