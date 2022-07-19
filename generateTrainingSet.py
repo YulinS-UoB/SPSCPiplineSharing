@@ -4,6 +4,7 @@ from scipy import ndimage
 import numpy as np
 import datetime
 import numba as nb
+import os
 # ***********************************
 
 '''Below are Static Methods'''
@@ -43,7 +44,7 @@ def gaussianBlur(tensor, sigma):
 class TrainingSetGenerator:
 
     def __init__(self, annotation_meta, vision_rad, vision_mode='TorchShine', vision_shape='circle',
-                 preprocess='verstile', dim_oder='txyc', dataset_prefix='annotationDS', **kwargs):
+                 preprocess='versatile', dim_oder='txyc', dataset_prefix='annotationDS', **kwargs):
         self.labelMap = annotation_meta['label map']
         self.imgStack = np.load('{}.npy'.format(annotation_meta['image saving prefix']))
         self.maskStack = np.load('{}.npy'.format(annotation_meta['mask saving prefix']))
@@ -59,6 +60,8 @@ class TrainingSetGenerator:
         self.visionShape = vision_shape
         # [circle, square]
         self.datasetName = '{}{}/'.format(dataset_prefix, datetime.datetime.now().strftime('%Y-%m-%d_%H_%M'))
+        if not os.path.exists(self.datasetName):
+            os.mkdir(self.datasetName)
         protocol_temp = ['Gaussian', 'LoG', 'GEoG', 'DoG', 'STE', 'HoGE']
         sigma_choice = [0.2, 0.33, 0.6, 1, 1.8, 3, 5.4, 9, 16.2]
         self.processMode = {'versatile': [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 7, 8]],
@@ -197,7 +200,10 @@ class TrainingSetGenerator:
             label_feature_instances = self.iterRtrvFeatures(batch_num, res_stack, label_loc[label])
             for istc in range(label_feature_instances.shape[0]):
                 if write_ds:
-                    data_patch.append({'label': label, 'feature': '{}{}/T{:05d}P{:08d}.npy'})
+                    data_patch.append({'label': label, 'feature': '{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName,
+                                                                                                   label, tidx, istc)})
+                    if not os.path.exists('{}{}'.format(self.datasetName, label)):
+                        os.mkdir('{}{}'.format(self.datasetName, label))
                     np.save('{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName, label, tidx, istc))
                 else:
                     data_patch.append({'label': label, 'feature': label_feature_instances[istc, :]})
