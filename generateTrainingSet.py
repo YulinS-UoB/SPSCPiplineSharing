@@ -73,8 +73,7 @@ class TrainingSetGenerator:
         STE: Structure Tensor Eigenvalue
         HoGE: Hessian of Gaussian Eigenvalue
         '''
-        self.generateMask = [None, None]
-        # 0: Shape of the mask; 1: Value of the mask
+        self.generateMask = [np.empty((0, 0)), np.empty((0, 0))]  # 0: Shape of the mask; 1: Value of the mask
         if self.visionMod == 'TorchShine':
             if self.visionShape == 'circle':
                 self.generateMask[0] = morphology.disk(self.visionRad)
