@@ -12,5 +12,7 @@ anno = AnnotationInterprator('data/origin/', annoFileList, labelList, stackPath,
 anno.AIO_SelfComprehend()
 annoMeta = anno.AIO_SelfSaving()
 
-tsGen = TrainingSetGenerator(annoMeta, vision_rad=4, vision_mode='CandleLight', dim_oder='txy')
+tsGen = TrainingSetGenerator(annoMeta, dataset_prefix='data/AnnotationDS', vision_rad=1, vision_mode='CandleLight',
+                             dim_oder='txy', preprocess='versatile')
 tsGen.arrangeDim()
+tsGen.preProcess(save_by_iter=True)

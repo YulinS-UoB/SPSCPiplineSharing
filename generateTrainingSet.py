@@ -64,8 +64,9 @@ class TrainingSetGenerator:
             os.mkdir(self.datasetName)
         protocol_temp = ['Gaussian', 'LoG', 'GEoG', 'DoG', 'STE', 'HoGE']
         sigma_choice = [0.2, 0.33, 0.6, 1, 1.8, 3, 5.4, 9, 16.2]
-        self.processMode = {'versatile': [[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5, 6, 7, 8]],
-                            'traditional': [[0, 1, 2, 3], [0, 1, 2, 3, 4, 5, 6, 7, 8]]}
+        self.processMode = {'versatile': [[0, 1, 2, 3, 4, 5], [0, 2, 4, 6, 7, 8]],
+                            'traditional': [[0, 1, 2, 3], [0, 1, 2, 3, 4, 5, 6, 7, 8]],
+                            'test': [[0, 1, 2, 3, 4, 5], [0]]}
         self.processProtocol = {'method': [protocol_temp[index1] for index1 in self.processMode[preprocess][0]],
                                 'sigma': [sigma_choice[index2] for index2 in self.processMode[preprocess][1]]}
         '''
@@ -161,7 +162,7 @@ class TrainingSetGenerator:
                 self.maskStack = np.moveaxis(self.maskStack, 3, 0)
         # Now both image stack and mask stack become txyc style, 4 dimensions
 
-    def preProcess(self, save_by_iter=False):
+    def preProcess(self, save_by_iter=False, write_img=False):
         # pre-process the images according to the protocol, and save(or not) all the features (after processing) of the
         # labeled pixels as dataset
         # Has 3 sub functions:
@@ -179,9 +180,11 @@ class TrainingSetGenerator:
         processed_dict = {'results': {}, 'meta': {}}
         for tIdx in range(self.imgStack.shape[0]):
             if self.maskStack[tIdx, :, :, :].sum(dtype='uint32') != 0:
-                origin_img = self.imgStack.shape[tIdx, :, :, :].astype(np.double)
+                origin_img = self.imgStack[tIdx, :, :, :].astype(np.double)
                 res_shape = (trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2], self.imgStack.shape[3])
                 processed_stack = self.imgOpt_at_sTimePoint(origin_img, res_shape)
+                if write_img:
+                    np.save('{}Processed_Stack_T{:05d}.npy'.format(self.datasetName, tIdx), processed_stack)
                 if save_by_iter:
                     processed_dict['results']['{:05d}'.format(tIdx)] = self.savePatches(processed_stack, tIdx)
                 else:
@@ -204,16 +207,18 @@ class TrainingSetGenerator:
                                                                                                    label, tidx, istc)})
                     if not os.path.exists('{}{}'.format(self.datasetName, label)):
                         os.mkdir('{}{}'.format(self.datasetName, label))
-                    np.save('{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName, label, tidx, istc))
+                    np.save('{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName, label, tidx, istc),
+                            label_feature_instances[istc])
                 else:
                     data_patch.append({'label': label, 'feature': label_feature_instances[istc, :]})
         return data_patch
 
-    @nb.jit()
+    #  @nb.jit()
     def iterRtrvFeatures(self, batch_num, res_stack, label_loc):
-        feature_array = np.zeros(batch_num, self.generateMask[0].sum() * res_stack.shape[0] * res_stack.shape[3])
+        feature_array = np.zeros((batch_num, self.generateMask[0].sum() * res_stack.shape[0] * res_stack.shape[3]))
         focus_rad = (self.generateMask[0].shape[0] - 1) // 2
-        padded_feature = np.pad(res_stack, (0, focus_rad, focus_rad, 0), mode='reflect')
+        padded_feature = np.pad(res_stack, ((0, 0), (focus_rad, focus_rad), (focus_rad, focus_rad), (0, 0)),
+                                mode='reflect')
         nd_filter = np.zeros((res_stack.shape[0], self.generateMask[0].shape[0], self.generateMask[0].shape[1],
                               res_stack.shape[3]))
         noticed_loc = np.where(self.generateMask[0] != 0)
@@ -222,7 +227,10 @@ class TrainingSetGenerator:
                 nd_filter[t, :, :, c] = self.generateMask[1]
         for loc in range(batch_num):
             x, y = label_loc[:, loc]
-            feature_region = padded_feature[:, (x - focus_rad):(x + focus_rad), (y - focus_rad):(y + focus_rad), :]
+            x = x + focus_rad
+            y = y + focus_rad
+            feature_region = padded_feature[:, (x - focus_rad):(x + focus_rad + 1),
+                                            (y - focus_rad):(y + focus_rad + 1), :]
             noticed_feature = ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :]).flatten()
             feature_array[loc, :] = noticed_feature
         return feature_array
@@ -278,6 +286,7 @@ class TrainingSetGenerator:
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     blurred_tensor = gaussianBlur(outer_tensor, sigma)
                     eigen_res = calcuEigenVal(blurred_tensor)
+                    eigen_res = np.moveaxis(eigen_res, 3, 0)
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
 
@@ -286,7 +295,7 @@ class TrainingSetGenerator:
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     outer_tensor = np.zeros((origin_img.shape[0], origin_img.shape[1],
-                                             origin_img.shape[3], 4))
+                                             origin_img.shape[2], 4))
                     for c in range(origin_img.shape[2]):
                         outer_tensor[:, :, c, 0] = \
                             ndimage.gaussian_filter(origin_img[:, :, c], sigma=sigma, order=(2, 0))
@@ -296,6 +305,7 @@ class TrainingSetGenerator:
                         outer_tensor[:, :, c, 1] = even_driv
                         outer_tensor[:, :, c, 2] = even_driv
                     eigen_res = calcuEigenVal(outer_tensor)
+                    eigen_res = np.moveaxis(eigen_res, 3, 0)
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
         return processed_stack
