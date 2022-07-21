@@ -183,6 +183,13 @@ class TrainingSetGenerator:
                 origin_img = self.imgStack[tIdx, :, :, :].astype(np.double)
                 res_shape = (trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2], self.imgStack.shape[3])
                 processed_stack = self.imgOpt_at_sTimePoint(origin_img, res_shape)
+                for batchId in range(processed_stack.shape[0]):
+                    for c in range(processed_stack.shape[3]):
+                        min_val = processed_stack[batchId, :, :, c].min()
+                        max_val = processed_stack[batchId, :, :, c].max()
+                        processed_stack[batchId, :, :, c] = \
+                            (processed_stack[batchId, :, :, c] - min_val) / (max_val - min_val + 1e-10)
+                # ↑ Normalization
                 if write_img:
                     np.save('{}Processed_Stack_T{:05d}.npy'.format(self.datasetName, tIdx), processed_stack)
                 if save_by_iter:
