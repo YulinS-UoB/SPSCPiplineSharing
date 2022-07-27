@@ -4,7 +4,7 @@ from roifile import ImagejRoi
 import skimage.io as skio
 from skimage.draw import polygon
 import json as js
-# ************************************
+# ***********************************
 
 
 class AnnotationInterprator:
