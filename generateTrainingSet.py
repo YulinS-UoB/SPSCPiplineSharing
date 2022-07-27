@@ -316,3 +316,4 @@ class TrainingSetGenerator:
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
         return processed_stack
+
