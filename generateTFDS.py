@@ -41,7 +41,5 @@ label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64
 
 image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
 
-ds = image_label_ds.shuffle(buffer_size=5000)
-ds = ds.repeat()
-ds = ds.batch(32)
+ds = image_label_ds.batch(32)
 ds = ds.prefetch(buffer_size=AUTOTUNE)
