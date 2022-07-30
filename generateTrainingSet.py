@@ -199,7 +199,7 @@ class TrainingSetGenerator:
                                                                                         write_ds=False)
         return processed_dict
 
-    def savePatches(self, res_stack, tidx, write_ds=True):
+    def savePatches(self, res_stack, tidx, write_ds=True, max_px=10000):
         mask = self.maskStack[tidx, :, :, 0]
         label_loc = {}
         data_patch = []
@@ -208,6 +208,7 @@ class TrainingSetGenerator:
         for label in label_loc.keys():
             batch_num = label_loc[label].shape[1]
             label_feature_instances = self.iterRtrvFeatures(batch_num, res_stack, label_loc[label])
+            '''
             for istc in range(label_feature_instances.shape[0]):
                 if write_ds:
                     data_patch.append({'label': label, 'feature': '{}{}/T{:05d}P{:08d}.npy'.format(self.datasetName,
@@ -218,6 +219,23 @@ class TrainingSetGenerator:
                             label_feature_instances[istc])
                 else:
                     data_patch.append({'label': label, 'feature': label_feature_instances[istc, :]})
+            '''
+            if write_ds:
+                if label_feature_instances.shape[0] > max_px:
+                    bar_num = (label_feature_instances.shape[0] // max_px) + 1
+                    for bar in range(bar_num):
+                        data_patch.append({'label': label, 'feature': '{}{}/T{:05d}B{:03d}.npy'.format(
+                            self.datasetName, label, tidx, bar)})
+                        if not os.path.exists('{}{}'.format(self.datasetName, label)):
+                            os.mkdir('{}{}'.format(self.datasetName, label))
+                        if (bar + 1) * 10000 < label_feature_instances.shape[0]:
+                            np.save('{}{}/T{:05d}B{:03d}.npy'.format(self.datasetName, label, tidx, bar),
+                                    label_feature_instances[bar * 10000:(bar + 1) * 10000, :])
+                        else:
+                            np.save('{}{}/T{:05d}B{:03d}.npy'.format(self.datasetName, label, tidx, bar),
+                                    label_feature_instances[bar * 10000:label_feature_instances.shape[0], :])
+            else:
+                data_patch.append({'label': label, 'feature': label_feature_instances})
         return data_patch
 
     #  @nb.jit()
