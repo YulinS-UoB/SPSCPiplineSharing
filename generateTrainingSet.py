@@ -5,6 +5,7 @@ import numpy as np
 import datetime
 import numba as nb
 import os
+import time
 # ***********************************
 
 '''Below are Static Methods'''
@@ -240,6 +241,7 @@ class TrainingSetGenerator:
 
     #  @nb.jit()
     def iterRtrvFeatures(self, batch_num, res_stack, label_loc):
+        time0 = time.time()
         feature_array = np.zeros((batch_num, self.generateMask[0].sum() * res_stack.shape[0] * res_stack.shape[3]))
         focus_rad = (self.generateMask[0].shape[0] - 1) // 2
         padded_feature = np.pad(res_stack, ((0, 0), (focus_rad, focus_rad), (focus_rad, focus_rad), (0, 0)),
@@ -258,6 +260,7 @@ class TrainingSetGenerator:
                                             (y - focus_rad):(y + focus_rad + 1), :]
             noticed_feature = ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :]).flatten()
             feature_array[loc, :] = noticed_feature
+        print('{} secs for retrieving pixels in single res stack'.format(time.time() - time0))
         return feature_array
 
     def imgOpt_at_sTimePoint(self, image, shape):
@@ -269,31 +272,38 @@ class TrainingSetGenerator:
             method = self.processProtocol['method'][methodIdx]
             # Gaussian Blurr
             if method == 'Gaussian':
+                time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     processed_stack[batch_pointer, :, :, :] = \
                         filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
                     batch_pointer = batch_pointer + 1
+                print('{} secs for Gaussian blurr'.format(time.time() - time0))
 
             # Laplacian of Gaussian
             elif method == 'LoG':
+                time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     blurred = filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
                     processed_stack[batch_pointer, :, :, :] = \
                         filters.laplace(blurred)
                     batch_pointer = batch_pointer + 1
+                print('{} secs for Laplacian of Gaussian'.format(time.time() - time0))
 
             # Difference of Gaussian
             elif method == 'DoG':
+                time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     processed_stack[batch_pointer, :, :, :] = \
                         filters.difference_of_gaussians(origin_img, low_sigma=sigma, channel_axis=2)
                     batch_pointer = batch_pointer + 1
+                print('{} secs for Difference of Gaussian'.format(time.time() - time0))
 
             # Gradient Magnitude of Gaussian
             elif method == 'GEoG':
+                time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     blurred = filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
@@ -301,9 +311,11 @@ class TrainingSetGenerator:
                         np.sqrt(np.square(np.gradient(blurred, axis=0)) +
                                 np.square(np.gradient(blurred, axis=1)))
                     batch_pointer = batch_pointer + 1
+                print('{} secs for Energy of Gaussian'.format(time.time() - time0))
 
             # Structure Tensor Eigenvalue
             elif method == 'STE':
+                time0 = time.time()
                 gradient_x = np.gradient(origin_img, axis=0)
                 gradient_y = np.gradient(origin_img, axis=1)
                 outer_tensor = outerTensor(gradient_x, gradient_y)
@@ -314,9 +326,11 @@ class TrainingSetGenerator:
                     eigen_res = np.moveaxis(eigen_res, 3, 0)
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
+                print('{} secs for Structure Tensor Eigenvalue'.format(time.time() - time0))
 
             # Hessian of Gaussian Eigenvalue
             elif method == 'HoGE':
+                time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
                     outer_tensor = np.zeros((origin_img.shape[0], origin_img.shape[1],
@@ -333,4 +347,5 @@ class TrainingSetGenerator:
                     eigen_res = np.moveaxis(eigen_res, 3, 0)
                     processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
                     batch_pointer = batch_pointer + 2
+                print('{} secs for Hessian of Gaussian Eigenvalue'.format(time.time() - time0))
         return processed_stack

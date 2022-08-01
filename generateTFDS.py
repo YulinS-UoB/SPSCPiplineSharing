@@ -1,45 +1,21 @@
 # ***********************************
 import tensorflow as tf
-import pathlib
-import random
 import numpy as np
-AUTOTUNE = tf.data.experimental.AUTOTUNE
 # ***********************************
 
-data_root = pathlib.Path('data/AnnotationDS2022-07-21_23_14/dataset')
 
-
-all_image_paths = list(data_root.glob('*/*'))
-all_image_paths = [str(path) for path in all_image_paths]
-random.shuffle(all_image_paths)
-image_count = len(all_image_paths)
-
-label_names = sorted(item.name for item in data_root.glob('*/') if item.is_dir())
-label_to_index = dict((name, index) for index, name in enumerate(label_names))
-all_image_labels = [label_to_index[pathlib.Path(path).parent.name]
-                    for path in all_image_paths]
-
-img_path = all_image_paths[0]
-img_raw = np.load(img_path)
-img_tensor = tf.convert_to_tensor(img_raw, dtype=tf.float32)
-print(img_tensor.shape)
-print(img_tensor.dtype)
-
-
-def preprocess_image(image_path):
-    image = np.load(image_path)
-    image = tf.convert_to_tensor(image, dtype=tf.float32)
-    return image
-
-
-path_ds = tf.data.Dataset.from_tensor_slices(all_image_paths)
-
-image_ds = path_ds.map(tf.autograph.experimental.do_not_convert(
-        lambda item: tf.numpy_function(preprocess_image, [item], tf.float32)))
-
-label_ds = tf.data.Dataset.from_tensor_slices(tf.cast(all_image_labels, tf.int64))
-
-image_label_ds = tf.data.Dataset.zip((image_ds, label_ds))
-
-ds = image_label_ds.batch(32)
-ds = ds.prefetch(buffer_size=AUTOTUNE)
+def fetchData(data_prefix, time=0, bar=0, seed=1428, batchsize=32):
+    data_l001 = np.load('data/{}/dataset/001/T{:05d}B{:03d}.npy'.format(data_prefix, time, bar))
+    data_l002 = np.load('data/{}/dataset/002/T{:05d}B{:03d}.npy'.format(data_prefix, time, bar))
+    datal_mix_x = np.concatenate((data_l001, data_l002), axis=0)
+    datal_mix_y = np.concatenate((np.zeros((data_l001.shape[0], )), np.ones((data_l002.shape[0], ))), axis=0)
+    np.random.seed(seed)
+    np.random.shuffle(datal_mix_x)
+    np.random.seed(seed)
+    np.random.shuffle(datal_mix_y)
+    feature_ds = tf.data.Dataset.from_tensor_slices(datal_mix_x)
+    label_ds = tf.data.Dataset.from_tensor_slices(datal_mix_y)
+    image_label_ds = tf.data.Dataset.zip((feature_ds, label_ds))
+    ds = image_label_ds.batch(batchsize)
+    ds = ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+    return ds
