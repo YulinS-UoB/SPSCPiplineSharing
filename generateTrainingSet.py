@@ -6,6 +6,7 @@ import datetime
 import numba as nb
 import os
 import time
+from scipy import linalg
 # ***********************************
 
 '''Below are Static Methods'''
@@ -24,12 +25,16 @@ def outerTensor(gr_x, gr_y):
 
 @nb.jit()
 def calcuEigenVal(tensor):
-    eigenval_tensor = np.zeros((tensor.shape[0], tensor.shape[1], tensor.shape[2], 2), dtype=np.double)
+    eigenval_tensor = np.zeros((tensor.shape[0], tensor.shape[1], tensor.shape[2], 2))
     for i in range(tensor.shape[0]):
         for j in range(tensor.shape[1]):
             for c in range(tensor.shape[2]):
-                eigenval_tensor[i, j, c, :], v = np.linalg.eig(tensor[i, j, c, :].reshape((2, 2)))
-    return eigenval_tensor
+                eigenval_tensor[i, j, c, :] = linalg.eigvals(tensor[i, j, c, :].reshape((2, 2)))
+    '''
+    tensor_res = tensor.reshape((tensor.shape[0], tensor.shape[1], tensor.shape[2], 2, 2))
+    eigenval_tensor = np.linalg.eigvals(tensor_res)
+    '''
+    return eigenval_tensor.astype('double')
 
 
 def gaussianBlur(tensor, sigma):

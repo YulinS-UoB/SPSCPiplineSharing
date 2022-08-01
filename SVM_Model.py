@@ -21,7 +21,7 @@ model = tf.keras.Sequential([
 model.compile(
     optimizer='adam',
     loss='hinge',
-    metrics=['categorical_crossentropy']
+    metrics=['categorical_accuracy']
 )
 
 
