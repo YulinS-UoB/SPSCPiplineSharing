@@ -7,6 +7,7 @@ import numba as nb
 import os
 import time
 from scipy import linalg
+import diplib as dip
 # ***********************************
 
 '''Below are Static Methods'''
@@ -189,12 +190,16 @@ class TrainingSetGenerator:
                 origin_img = self.imgStack[tIdx, :, :, :].astype(np.double)
                 res_shape = (trtmnt_num, self.imgStack.shape[1], self.imgStack.shape[2], self.imgStack.shape[3])
                 processed_stack = self.imgOpt_at_sTimePoint(origin_img, res_shape)
+
                 for batchId in range(processed_stack.shape[0]):
                     for c in range(processed_stack.shape[3]):
                         min_val = processed_stack[batchId, :, :, c].min()
                         max_val = processed_stack[batchId, :, :, c].max()
                         processed_stack[batchId, :, :, c] = \
-                            (processed_stack[batchId, :, :, c] - min_val) / (max_val - min_val + 1e-10)
+                            (processed_stack[batchId, :, :, c] - min_val) / (max_val - min_val + 1e-10) * 65535
+
+                processed_stack = processed_stack.astype('uint16')
+
                 # ↑ Normalization
                 if write_img:
                     np.save('{}Processed_Stack_T{:05d}.npy'.format(self.datasetName, tIdx), processed_stack)
@@ -247,7 +252,7 @@ class TrainingSetGenerator:
     #  @nb.jit()
     def iterRtrvFeatures(self, batch_num, res_stack, label_loc):
         time0 = time.time()
-        feature_array = np.zeros((batch_num, self.generateMask[0].sum() * res_stack.shape[0] * res_stack.shape[3]))
+        feature_array = np.zeros((batch_num, res_stack.shape[0] * res_stack.shape[3]))
         focus_rad = (self.generateMask[0].shape[0] - 1) // 2
         padded_feature = np.pad(res_stack, ((0, 0), (focus_rad, focus_rad), (focus_rad, focus_rad), (0, 0)),
                                 mode='reflect')
@@ -263,7 +268,9 @@ class TrainingSetGenerator:
             y = y + focus_rad
             feature_region = padded_feature[:, (x - focus_rad):(x + focus_rad + 1),
                                             (y - focus_rad):(y + focus_rad + 1), :]
-            noticed_feature = ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :]).flatten()
+            # noticed_feature = ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :]).flatten()
+            noticed_feature = \
+                ((feature_region * nd_filter)[:, noticed_loc[0], noticed_loc[1], :].mean(axis=(1, 2))).flatten()
             feature_array[loc, :] = noticed_feature
         print('{} secs for retrieving pixels in single res stack'.format(time.time() - time0))
         return feature_array
@@ -321,15 +328,23 @@ class TrainingSetGenerator:
             # Structure Tensor Eigenvalue
             elif method == 'STE':
                 time0 = time.time()
+                '''
                 gradient_x = np.gradient(origin_img, axis=0)
                 gradient_y = np.gradient(origin_img, axis=1)
                 outer_tensor = outerTensor(gradient_x, gradient_y)
+                '''
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
-                    sigma = self.processProtocol['sigma'][sigmaIdx]
-                    blurred_tensor = gaussianBlur(outer_tensor, sigma)
-                    eigen_res = calcuEigenVal(blurred_tensor)
-                    eigen_res = np.moveaxis(eigen_res, 3, 0)
-                    processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
+                    for c in range(origin_img.shape[2]):
+                        sigma = self.processProtocol['sigma'][sigmaIdx]
+                        blurred_tensor = dip.StructureTensor(origin_img[:, :, c], tensorSigmas=sigma)
+                        eigenval, eigenvec = dip.EigenDecomposition(blurred_tensor)
+                        '''
+                        blurred_tensor = gaussianBlur(outer_tensor, sigma)
+                        eigen_res = calcuEigenVal(blurred_tensor)
+                        eigen_res = np.moveaxis(eigen_res, 3, 0)
+                        '''
+                        processed_stack[batch_pointer, :, :, c] = np.asarray(eigenval(0))
+                        processed_stack[batch_pointer + 1, :, :, c] = np.asarray(eigenval(1))
                     batch_pointer = batch_pointer + 2
                 print('{} secs for Structure Tensor Eigenvalue'.format(time.time() - time0))
 
@@ -338,9 +353,13 @@ class TrainingSetGenerator:
                 time0 = time.time()
                 for sigmaIdx in range(len(self.processProtocol['sigma'])):
                     sigma = self.processProtocol['sigma'][sigmaIdx]
+                    blurred_tensor = filters.gaussian(origin_img, sigma=sigma, channel_axis=2)
+                    '''
                     outer_tensor = np.zeros((origin_img.shape[0], origin_img.shape[1],
                                              origin_img.shape[2], 4))
+                    '''
                     for c in range(origin_img.shape[2]):
+                        '''
                         outer_tensor[:, :, c, 0] = \
                             ndimage.gaussian_filter(origin_img[:, :, c], sigma=sigma, order=(2, 0))
                         outer_tensor[:, :, c, 3] = \
@@ -350,7 +369,11 @@ class TrainingSetGenerator:
                         outer_tensor[:, :, c, 2] = even_driv
                     eigen_res = calcuEigenVal(outer_tensor)
                     eigen_res = np.moveaxis(eigen_res, 3, 0)
-                    processed_stack[batch_pointer:(batch_pointer + 2), :, :, :] = eigen_res
+                    '''
+                        hessian_img = dip.Hessian(blurred_tensor[:, :, c], sigmas=sigma)
+                        eigenval, eigenvec = dip.EigenDecomposition(hessian_img)
+                        processed_stack[batch_pointer, :, :, c] = np.asarray(eigenval(0))
+                        processed_stack[batch_pointer + 1, :, :, c] = np.asarray(eigenval(1))
                     batch_pointer = batch_pointer + 2
                 print('{} secs for Hessian of Gaussian Eigenvalue'.format(time.time() - time0))
         return processed_stack
