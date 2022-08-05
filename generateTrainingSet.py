@@ -196,7 +196,8 @@ class TrainingSetGenerator:
                         min_val = processed_stack[batchId, :, :, c].min()
                         max_val = processed_stack[batchId, :, :, c].max()
                         processed_stack[batchId, :, :, c] = \
-                            (processed_stack[batchId, :, :, c] - min_val) / (max_val - min_val + 1e-10)
+                            (processed_stack[batchId, :, :, c] - min_val) / (max_val - min_val + 1e-10) * 65535
+                        processed_stack = processed_stack.astype('uint16')
 
                 # ↑ Normalization
                 if write_img:
