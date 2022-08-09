@@ -51,11 +51,13 @@ def gaussianBlur(tensor, sigma):
 class TrainingSetGenerator:
 
     def __init__(self, annotation_meta, vision_rad, vision_mode='TorchShine', vision_shape='circle',
-                 preprocess='versatile', dim_oder='txyc', dataset_prefix='annotationDS', **kwargs):
+                 preprocess='versatile', dim_oder='txyc', dataset_prefix='annotationDS', batch_num=20000, **kwargs):
         self.labelMap = annotation_meta['label map']
         self.imgStack = np.load('{}.npy'.format(annotation_meta['image saving prefix']))
         self.maskStack = np.load('{}.npy'.format(annotation_meta['mask saving prefix']))
         self.imageDim = dim_oder
+        self.batchNum = batch_num
+        # ↑The batch size of the saved traning sets
         # imageDim = ['txyc', 'xyct', 'xyc', 'xyt', 'txy']
         # Note that: X, Y in the script all actually refer to row and column, respectively. They are NOT real X and Y!!
         self.visionRad = vision_rad
@@ -63,7 +65,7 @@ class TrainingSetGenerator:
         self.visionMod = vision_mode
         # [TorchShine: A vision field with small size and equal weight;
         #  CandleLight: A vision field with large size and decayed weight with gaussian distribution in distance]
-        #  The vision_rad is the pixel rad in TorchShine and sigma in MoonLight
+        #  The vision_rad is the pixel rad in TorchShine and sigma in CandleLight
         self.visionShape = vision_shape
         # [circle, square]
         self.datasetName = '{}{}/'.format(dataset_prefix, datetime.datetime.now().strftime('%Y-%m-%d_%H_%M'))
@@ -209,7 +211,8 @@ class TrainingSetGenerator:
                                                                                         write_ds=False)
         return processed_dict
 
-    def savePatches(self, res_stack, tidx, write_ds=True, max_px=10000):
+    def savePatches(self, res_stack, tidx, write_ds=True):
+        max_px = self.batchNum
         mask = self.maskStack[tidx, :, :, 0]
         label_loc = {}
         data_patch = []
@@ -238,12 +241,12 @@ class TrainingSetGenerator:
                             self.datasetName, label, tidx, bar)})
                         if not os.path.exists('{}{}'.format(self.datasetName, label)):
                             os.mkdir('{}{}'.format(self.datasetName, label))
-                        if (bar + 1) * 10000 < label_feature_instances.shape[0]:
+                        if (bar + 1) * max_px < label_feature_instances.shape[0]:
                             np.save('{}{}/T{:05d}B{:03d}.npy'.format(self.datasetName, label, tidx, bar),
-                                    label_feature_instances[bar * 10000:(bar + 1) * 10000, :])
+                                    label_feature_instances[bar * max_px:(bar + 1) * max_px, :])
                         else:
                             np.save('{}{}/T{:05d}B{:03d}.npy'.format(self.datasetName, label, tidx, bar),
-                                    label_feature_instances[bar * 10000:label_feature_instances.shape[0], :])
+                                    label_feature_instances[bar * max_px:label_feature_instances.shape[0], :])
             else:
                 data_patch.append({'label': label, 'feature': label_feature_instances})
         return data_patch

@@ -4,54 +4,86 @@ from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPClassifier
+import tensorflow as tf
 from skimage import filters
 import pickle
 import time
 import datetime
 import cv2 as cv
+import os
 # ***********************************
 DataRoot = 'data/AnnotationDS2022-08-04_17_32/'
-DataBar = 'T00000B000.npy'
+DataBar = 5
 
 
-def generateDSet(data_root=DataRoot, data_bar=DataBar):
-    seed = np.random.randint(3000)
-    test_data001 = np.load(data_root + '001/' + data_bar)
-    test_data002 = np.load(data_root + '002/' + data_bar)
-    test_data = np.concatenate((test_data001, test_data002))
-    test_label = np.concatenate((np.ones((test_data001.shape[0])), 2 * np.ones((test_data002.shape[0])))).astype('int')
-    np.random.seed(seed)
+def generateDSet(data_bar, exclude=None, data_root=DataRoot, seeding='Auto'):
+    # seeding can either be 'Auto' as default or a number which makes random dataset reproducable
+    # format of exclude: (seed, exclude size)
+    if seeding == 'Auto':
+        seed1 = np.random.randint(3000)
+        print('The seed for reading file is decided as: ', seed1)
+        seed2 = np.random.randint(3000)
+        print('The seed for shuffling data is decided as: ', seed2)
+    else:
+        seed1 = seeding[0]
+        seed2 = seeding[1]
+    neg_data_list = os.listdir(data_root + '001/')
+    neg_data_list.sort()
+    pos_data_list = os.listdir(data_root + '002/')
+    pos_data_list.sort()
+    neg_data_num = len(neg_data_list)
+    pos_data_num = len(pos_data_list)
+    if type(data_bar) == int:
+        if exclude:
+            np.random.seed(exclude[0])
+            niet_neg = np.random.choice(list(range(neg_data_num)), size=exclude[1])
+            niet_pos = np.random.choice(list(range(pos_data_num)), size=exclude[1])
+            list_left_neg = np.setdiff1d(list(range(neg_data_num)), niet_neg)
+            list_left_pos = np.setdiff1d(list(range(pos_data_num)), niet_neg)
+        else:
+            list_left_neg = np.asarray(range(neg_data_num))
+            list_left_pos = np.asarray(range(pos_data_num))
+        np.random.seed(seed1)
+        itrtr_neg = np.random.choice(list_left_neg, size=data_bar)
+        itrtr_pos = np.random.choice(list_left_pos, size=data_bar)
+        itrtr = range(data_bar)
+    elif type(data_bar) == list:
+        print('Warning: no random choice of data file was performied as an ordered list was given')
+        itrtr = range(len(data_bar))
+        itrtr_neg = data_bar[0:(len(data_bar) // 2)]
+        itrtr_pos = data_bar[0:(len(data_bar) // 2)]
+    else:
+        print('Error in data_bar type!')
+        return 1
+    data_list = []
+    label_list = []
+    for i in itrtr:
+        data_list.append(np.load("{}001/{}" + neg_data_list[itrtr_neg[i]]))
+        label_list.append(np.ones((data_list[0].shape[0])))
+        data_list.append(np.load("{}002/{}" + pos_data_list[itrtr_pos[i]]))
+        label_list.append(2 * np.ones((data_list[0].shape[0])))
+    test_data = np.concatenate(data_list).astype('int')
+    test_label = np.concatenate(label_list).astype('int')
+    np.random.seed(seed2)
     np.random.shuffle(test_data)
-    np.random.seed(seed)
+    np.random.seed(seed2)
     np.random.shuffle(test_label)
 
     return test_data, test_label
 
 
-x, y = generateDSet()
+x, y = generateDSet(data_bar=[0, 1, 2, 3, 4])
 
-'''
-clf = svm.SVC()
-clf.fit(x, y)
+model_tf = tf.keras.Sequential([
+    tf.keras.Input(shape=(48,), batch_size=800),
+    tf.keras.layers.Dense(units=1, activation='sigmoid'),
 
-clf2 = RandomForestClassifier(n_estimators=300, max_depth=None, min_samples_split=2, random_state=0, n_jobs=4)
-clf2.fit(x, y)
-
-x2, y2 = generateDSet(data_bar='T00000B001.npy')
-y2H = clf.predict(x2)
-y2H2 = clf2.predict(x2)
-
-testImg = np.load('data/AnnotationDS2022-08-03_20_11/Processed_Stack_T00000.npy')
-testX = testImg[:, :, :, 0].reshape((48, 2160 * 2560))
-testX = np.moveaxis(testX, 1, 0)
-
-testY = clf.predict(testX)
-testYNDA = testY.reshape((2160, 2560))
-plt.imshow(testYNDA, cmap='gray')
-testY2 = clf2.predict(testX)
-testYNDA2 = testY2.reshape((2160, 2560))
-plt.imshow(testYNDA2, cmap='gray')
-'''
+])
+model_tf.compile(
+    optimizer='adam',
+    loss='hinge',
+    metrics=['categorical_accuracy']
+)
 
 clf3 = MLPClassifier(batch_size=800, activation='logistic', hidden_layer_sizes=(24, 12, 4, 1), random_state=1428,
                      verbose=True, n_iter_no_change=1500, max_iter=1500)
@@ -72,7 +104,7 @@ testX = testImg[:, :, :, 0].reshape((48, 2160 * 2560))
 testX = np.moveaxis(testX, 1, 0)
 t1 = time.time()
 testY = clf3.predict(testX)
-print('Time cosumed: {} secs'.format(time.time()-t1))
+print('Time consumed: {} secs'.format(time.time()-t1))
 testYNDA = testY.reshape((2160, 2560))
 plt.imshow(testYNDA)
 plt.colorbar()
